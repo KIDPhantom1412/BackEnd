@@ -180,7 +180,7 @@ class HttpCodec : public Codec {
       ERROR("not find Content-Length header");
       return false;
     }
-    uint32_t bodyLen = (uint32_t)std::stoi(iter->second);  // std::stoi可以直接传入std::string
+    uint32_t bodyLen = (uint32_t)std::stoi(iter->second);  // std::stoi可以直接传入std::string，如果传入c风格的字符串必然涉及隐式类型转换
     if (bodyLen > max_body_len_) {
       ERROR("body len[%d] is too long", bodyLen);
       return false;
