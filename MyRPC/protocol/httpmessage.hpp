@@ -32,8 +32,9 @@ typedef struct HttpMessage {
     }
   }
   std::string GetHeader(const std::string &key) {
-    if (headers_.find(key) == headers_.end()) return "";
-    return headers_[key];
+    auto it = headers_.find(key);
+    if (it == headers_.end()) return "";
+    return it->second;
   }
   void GetMethodAndUrl(std::string &method, std::string &url) {
     int32_t spaceCount = 0;
