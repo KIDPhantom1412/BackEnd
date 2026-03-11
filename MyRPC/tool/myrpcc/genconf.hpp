@@ -22,7 +22,8 @@ port = )" + serviceInfo.port_ +
                      R"(
 listen_if = any
 coroutine_count = 10240
-process_count = 16)";
+process_count = 16
+log_level = 2)";
     GenFile(file, content);
     return true;
   }
