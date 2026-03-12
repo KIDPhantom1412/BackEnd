@@ -81,7 +81,7 @@ class Logger {
         std::lock_guard<std::mutex> lock(mtx_);
         queue_.push(std::move(logMsg));
     }
-    condVar_.notify_all();
+    if (queue_.size() > 100) condVar_.notify_one();
   }
   static std::string GetLogId() {
     static std::string ip = Common::Utils::GetIpStr("eth0");  //默认取eth0的ip
