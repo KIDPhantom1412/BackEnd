@@ -117,7 +117,7 @@ class Logger {
     }
   }
   void writeLogQueue(std::queue<std::string>& queue) const {
-    staitc RobustIo io(fd_);
+    static RobustIo io(fd_);
     while (!queue.empty()) {
         std::string& logMsg = queue.front();
         io.Write((uint8_t *)logMsg.data(), logMsg.size());
