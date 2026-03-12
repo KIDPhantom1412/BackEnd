@@ -45,7 +45,7 @@ class Logger {
   }
   ~Logger() {
     {
-        std::lock_guard lock(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         exit_ = true;
     }
     condVar_.notify_all();
@@ -78,7 +78,7 @@ class Logger {
     std::string logMsg =
         levelStr(level) + " " + timeStr + " " + std::to_string(getpid()) + "," + logId + " " + buf.data + "\n";
     {
-        std::lock_guard lock(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         queue_.push(std::move(logMsg));
     }
     condVar_.notify_all();
@@ -100,7 +100,7 @@ class Logger {
   }
   void process() {
     static std::queue<std::string> localQueue;
-    std::unique_lock lock(mtx_);
+    std::unique_lock<std::mutex> lock(mtx_);
     while (true) {
       if (!exit_) {
         if (queue_.empty()) {
