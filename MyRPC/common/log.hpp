@@ -5,6 +5,11 @@
 #include <sys/types.h>
 
 #include <string>
+#include <queue>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <unistd.h>
 
 #include "robustio.hpp"
 #include "singleton.hpp"
@@ -20,9 +25,14 @@ enum LogLevel {  //日志输出级别
   LEVEL_WARN = 3,
   LEVEL_ERROR = 4,
 };
+constexpr int32_t logMsgBytes = 1024;
 
-class Logger {  //日志文件类
+class Logger {
  public:
+  Logger(const Logger&) = delete;
+  Logger& operator=(const Logger&) = delete;
+  Logger(const Logger&&) = delete;
+  Logger& operator=(const Logger&&) = delete;
   Logger() {
     std::string programName = Utils::GetSelfName();
     const char *cStr = programName.c_str();
@@ -31,21 +41,34 @@ class Logger {  //日志文件类
                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);  //追加写的方式打开文件
     assert(fd_ > 0);
     srand(time(0));
+    thread_ = std::thread(&Logger::process, this);
+  }
+  ~Logger() {
+    {
+        std::lock_guard lock(mtx_);
+        exit_ = true;
+    }
+    condVar_.notify_all();
+    thread_.join();
   }
   void SetLevel(LogLevel level) { level_ = level; }
   void Log(std::string logId, LogLevel level, char *format, ...) {
     if (level < level_) return;
     int32_t ret = 0;
-    char *buf = (char *)malloc(1024);
+    static thread_local struct Buffer {
+      char* data;
+      Buffer() { data = (char*)malloc(logMsgBytes); }
+      ~Buffer() { free(data); }
+    } buf;
     va_list plist;
     va_start(plist, format);
-    ret = vsnprintf(buf, 1024, format, plist);
+    ret = vsnprintf(buf.data, logMsgBytes, format, plist);
     va_end(plist);
     assert(ret > 0);
-    if (ret >= 1024) {  //缓冲区长度不足，需要重新分配内存
-      buf = (char *)realloc(buf, ret + 1);
+    if (ret >= logMsgBytes) {  //缓冲区长度不足，需要重新分配内存
+      buf.data = (char *)realloc(buf.data, ret + 1);
       va_start(plist, format);
-      ret = vsnprintf(buf, ret + 1, format, plist);
+      ret = vsnprintf(buf.data, ret + 1, format, plist);
       va_end(plist);
     }
     if (logId == "") {
@@ -53,10 +76,12 @@ class Logger {  //日志文件类
     }
     std::string timeStr = TimeFormat::GetTimeStr("%F %T", true);
     std::string logMsg =
-        levelStr(level) + " " + timeStr + " " + std::to_string(getpid()) + "," + logId + " " + buf + "\n";
-    free(buf);
-    RobustIo io(fd_);
-    io.Write((uint8_t *)logMsg.data(), logMsg.size());
+        levelStr(level) + " " + timeStr + " " + std::to_string(getpid()) + "," + logId + " " + buf.data + "\n";
+    {
+        std::lock_guard lock(mtx_);
+        queue_.push(std::move(logMsg));
+    }
+    condVar_.notify_all();
   }
   static std::string GetLogId() {
     static std::string ip = Common::Utils::GetIpStr("eth0");  //默认取eth0的ip
@@ -73,10 +98,41 @@ class Logger {  //日志文件类
     if (LEVEL_ERROR == level) return "[ERROR]";
     return "UNKNOWN";
   }
+  void process() {
+    static std::queue<std::string> localQueue;
+    std::unique_lock lock(mtx_);
+    while (true) {
+      if (!exit_) {
+        if (queue_.empty()) {
+          condVar_.wait(lock);
+        }
+      } else {
+        writeLogQueue(queue_);
+        break;
+      }
+      localQueue.swap(queue_);
+      lock.unlock();
+      writeLogQueue(localQueue);
+      lock.lock();
+    }
+  }
+  void writeLogQueue(std::queue<std::string>& queue) const {
+    staitc RobustIo io(fd_);
+    while (!queue.empty()) {
+        std::string& logMsg = queue.front();
+        io.Write((uint8_t *)logMsg.data(), logMsg.size());
+        queue.pop();
+    }
+  }
 
- protected:
-  LogLevel level_{LEVEL_TRACE};  //日志级别
-  int fd_{-1};                   //文件句柄
+  private:
+    int fd_{-1};
+    LogLevel level_{LEVEL_TRACE};
+    bool exit_{false};
+    std::queue<std::string> queue_;
+    std::mutex mtx_;
+    std::condition_variable condVar_;
+    std::thread thread_;
 };
 }  // namespace Common
 
