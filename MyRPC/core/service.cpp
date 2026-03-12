@@ -48,9 +48,7 @@ void MyRPCService::Run() {
   config_.GetIntValue("MyRPC", "process_count", processCount, Common::Utils::GetNProcs());
   for (int64_t i = 0; i < processCount; i++) {
     pid_t pid = fork();
-    int64_t logLevel = 0;
-    config_.GetIntValue("MyRPC", "log_level", logLevel, Common::LEVEL_INFO);
-    LOGGER.SetLevel((Common::LogLevel)logLevel);
+    LOGGER.ReInit();
     if (pid < 0) {
       ERROR("call fork failed. errMsg[%s]", strerror(errno));
       continue;

@@ -88,6 +88,9 @@ class Logger {
     std::string curTime = TimeFormat::GetTimeStr("%Y%m%d%H%M%S");
     return curTime + ip + std::to_string(rand() % 1000000);
   }
+  void ReInit() {
+    thread_ = std::thread(&Logger::process, this);
+  }
 
  private:
   std::string levelStr(LogLevel level) {
