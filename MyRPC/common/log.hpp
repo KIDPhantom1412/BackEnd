@@ -48,7 +48,7 @@ class Logger {
         std::lock_guard<std::mutex> lock(mtx_);
         exit_ = true;
     }
-    condVar_.notify_all();
+    condVar_.notify_one();
     thread_.join();
   }
   void SetLevel(LogLevel level) { level_ = level; }
