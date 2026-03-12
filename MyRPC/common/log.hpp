@@ -3,13 +3,13 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include <string>
 #include <queue>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
-#include <unistd.h>
 
 #include "robustio.hpp"
 #include "singleton.hpp"
