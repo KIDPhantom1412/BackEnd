@@ -48,11 +48,11 @@ void MyRPCService::Run() {
   config_.GetIntValue("MyRPC", "process_count", processCount, Common::Utils::GetNProcs());
   for (int64_t i = 0; i < processCount; i++) {
     pid_t pid = fork();
-    LOGGER.ReInit();
     if (pid < 0) {
       ERROR("call fork failed. errMsg[%s]", strerror(errno));
       continue;
     }
+    LOGGER.EnableAsync();
     if (0 == pid) {  // 子进程直接跳出循环
       is_master_ = false;
       break;

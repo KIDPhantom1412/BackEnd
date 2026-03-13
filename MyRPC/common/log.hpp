@@ -41,7 +41,6 @@ class Logger {
                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);  //追加写的方式打开文件
     assert(fd_ > 0);
     srand(time(0));
-    thread_ = std::thread(&Logger::process, this);
   }
   ~Logger() {
     {
@@ -49,7 +48,9 @@ class Logger {
         exit_ = true;
     }
     condVar_.notify_one();
-    thread_.join();
+    if (thread_.joinable()) {
+      thread_.join();
+    }
   }
   void SetLevel(LogLevel level) { level_ = level; }
   void Log(std::string logId, LogLevel level, char *format, ...) {
@@ -77,19 +78,28 @@ class Logger {
     std::string timeStr = TimeFormat::GetTimeStr("%F %T", true);
     std::string logMsg =
         levelStr(level) + " " + timeStr + " " + std::to_string(getpid()) + "," + logId + " " + buf.data + "\n";
-    {
+    if (!isAsync_) {
+      static RobustIo io(fd_);
+      io.Write((uint8_t *)logMsg.data(), logMsg.size());
+    } else {
+      {
         std::lock_guard<std::mutex> lock(mtx_);
         queue_.push(std::move(logMsg));
+      }
+      if (queue_.size() > 100) condVar_.notify_one();
     }
-    if (queue_.size() > 100) condVar_.notify_one();
   }
   static std::string GetLogId() {
     static std::string ip = Common::Utils::GetIpStr("eth0");  //默认取eth0的ip
     std::string curTime = TimeFormat::GetTimeStr("%Y%m%d%H%M%S");
     return curTime + ip + std::to_string(rand() % 1000000);
   }
-  void ReInit() {
-    thread_ = std::thread(&Logger::process, this);
+  void EnableAsync() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!thread_.joinable()) {
+      thread_ = std::thread(&Logger::process, this);
+    }
+    isAsync_ = true;
   }
 
  private:
@@ -132,6 +142,7 @@ class Logger {
     int fd_{-1};
     LogLevel level_{LEVEL_TRACE};
     bool exit_{false};
+    bool isAsync_{false};
     std::queue<std::string> queue_;
     std::mutex mtx_;
     std::condition_variable condVar_;
