@@ -25,10 +25,10 @@ int MyRPCService::Init(int argc, char* argv[]) {
   std::string programName = Common::Utils::GetSelfName();
   const char* str = programName.c_str();
   std::string cfgFile = Common::Strings::StrFormat((char*)"/home/backend/service/%s/%s.conf", str, str);
+  assert(config_.Load(cfgFile));  // 加载配置文件
   int64_t logLevel = 0;
   config_.GetIntValue("MyRPC", "log_level", logLevel, Common::LEVEL_INFO);
   LOGGER.SetLevel((Common::LogLevel)logLevel);
-  assert(config_.Load(cfgFile));  // 加载配置文件
   config_.Dump([](const std::string& section, const std::string& key, const std::string& value) {
     INFO("section[%s],keyValue[%s=%s]", section.c_str(), key.c_str(), value.c_str());
   });
