@@ -45,10 +45,10 @@ static void CoroutineRun(Schedule* schedule) {
 }
 
 static void CoroutineRunWrapper(bcd::transfer_t t) {
-  mainCtx = t.fctx;
+  fcontext_t mainCtx = t.fctx;
   Schedule* schedule = (Schedule*)t.data;
   CoroutineRun(schedule);
-  bcd::jump_fcontext(mainCtx, nullptr)
+  bcd::jump_fcontext(mainCtx, nullptr);
 }
 
 static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, void* arg, uint32_t priority,
