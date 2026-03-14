@@ -45,7 +45,7 @@ static void CoroutineRun(Schedule* schedule) {
 }
 
 static void CoroutineRunWrapper(bcd::transfer_t t) {
-  fcontext_t mainCtx = t.fctx;
+  bcd::fcontext_t mainCtx = t.fctx;
   Schedule* schedule = (Schedule*)t.data;
   CoroutineRun(schedule);
   bcd::jump_fcontext(mainCtx, nullptr);
