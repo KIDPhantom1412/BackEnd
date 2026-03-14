@@ -26,6 +26,7 @@ static void CoroutineRun(Schedule* schedule) {
   routine->entry(routine->arg);
   // entry函数执行完之后，才能把协程状态更新为idle，并标记runningCoroutineId为无效的id
   routine->state = Idle;
+  schedule->idleQueue.push_back(id);
   // 如果有关联的batch，则要更新batch的信息，设置batch关联的协程已经执行完
   if (routine->relateBatchId != INVALID_BATCH_ID) {
     Batch* batch = schedule->batchs[routine->relateBatchId];
@@ -74,13 +75,11 @@ static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, v
 }
 
 int CoroutineCreate(Schedule& schedule, Entry entry, void* arg, uint32_t priority, int relateBatchId) {
-  int id = 0;
-  for (id = 0; id < schedule.coroutineCnt; id++) {
-    if (schedule.coroutines[id]->state == Idle) break;
-  }
-  if (id >= schedule.coroutineCnt) {
+  if (schedule.idleQueue.empty()) {
     return INVALID_ROUTINE_ID;
   }
+  int id = schedule.idleQueue.front();
+  schedule.idleQueue.pop_front();
   schedule.activityCnt++;
   Coroutine* routine = schedule.coroutines[id];
   CoroutineInit(schedule, routine, entry, arg, priority, relateBatchId);
@@ -88,11 +87,7 @@ int CoroutineCreate(Schedule& schedule, Entry entry, void* arg, uint32_t priorit
 }
 
 bool CoroutineCanCreate(Schedule& schedule) {
-  int id = 0;
-  for (id = 0; id < schedule.coroutineCnt; id++) {
-    if (schedule.coroutines[id]->state == Idle) return true;
-  }
-  return false;
+  return !schedule.idleQueue.empty();
 }
 
 void CoroutineYield(Schedule& schedule) {
@@ -290,10 +285,12 @@ int ScheduleInit(Schedule& schedule, int coroutineCnt, int stackSize) {
   schedule.isMasterCoroutine = true;
   schedule.coroutineCnt = coroutineCnt;
   schedule.runningCoroutineId = INVALID_ROUTINE_ID;
+  schedule.idleQueue.clear();
   for (int i = 0; i < coroutineCnt; i++) {
     schedule.coroutines[i] = new Coroutine;
     schedule.coroutines[i]->state = Idle;
     schedule.coroutines[i]->stack = nullptr;
+    schedule.idleQueue.push_back(i);
   }
   for (int i = 0; i < MAX_BATCH_RUN_SIZE; i++) {
     schedule.batchs[i] = new Batch;
@@ -305,10 +302,7 @@ int ScheduleInit(Schedule& schedule, int coroutineCnt, int stackSize) {
 bool ScheduleRunning(Schedule& schedule) {
   assert(schedule.isMasterCoroutine);
   if (schedule.runningCoroutineId != INVALID_ROUTINE_ID) return true;
-  for (int i = 0; i < schedule.coroutineCnt; i++) {
-    if (schedule.coroutines[i]->state != Idle) return true;
-  }
-  return false;
+  return schedule.activityCnt > 0;
 }
 
 void ScheduleClean(Schedule& schedule) {

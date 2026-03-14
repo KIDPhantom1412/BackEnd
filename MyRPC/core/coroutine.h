@@ -92,6 +92,7 @@ typedef struct Schedule {
   Batch* batchs[MAX_BATCH_RUN_SIZE];          // 批量执行数组池
   int stackSize;                              // 协程栈的大小，单位字节
   std::list<int> batchFinishList;             // 完成了批量执行的关联的协程的id
+  std::list<int> idleQueue;                   // 空闲协程id队列
   bool stackCheck;                            // 是否检测协程栈空间是否溢出
 } Schedule;
 
