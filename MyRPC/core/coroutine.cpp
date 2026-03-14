@@ -45,10 +45,10 @@ static void CoroutineRun(Schedule* schedule) {
 }
 
 static void CoroutineRunWrapper(bcd::transfer_t t) {
-  bcd::fcontext_t mainCtx = t.fctx;
   Schedule* schedule = (Schedule*)t.data;
+  schedule->main = t.fctx;
   CoroutineRun(schedule);
-  bcd::jump_fcontext(mainCtx, nullptr);
+  bcd::jump_fcontext(schedule->main, nullptr);
 }
 
 static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, void* arg, uint32_t priority,
@@ -104,7 +104,8 @@ void CoroutineYield(Schedule& schedule) {
   routine->state = Suspend;
   // 当前的从协程让出执行权，并把当前的从协程的执行上下文保存到routine->ctx中，
   // 执行权回到主协程中，主协程再做调度，当从协程被主协程resume时，bcd::jump_fcontext才会返回。
-  bcd::jump_fcontext(schedule.main, nullptr);
+  bcd::transfer_t t = bcd::jump_fcontext(schedule.main, nullptr);
+  schedule.main = t.fctx;
   schedule.isMasterCoroutine = false;
 }
 
@@ -143,7 +144,8 @@ int CoroutineResume(Schedule& schedule) {
   schedule.runningCoroutineId = coroutineId;
   // 从主协程切换到协程编号为id的协程中执行，并把当前执行上下文保存到schedule.main中，
   // 当从协程执行结束或者从协程主动yield时，bcd::jump_fcontext才会返回。
-  bcd::jump_fcontext(routine->ctx, (void*)&schedule);
+  bcd::transfer_t t = bcd::jump_fcontext(routine->ctx, (void*)&schedule);
+  routine->ctx = t.fctx;
   schedule.isMasterCoroutine = true;
   return Success;
 }
@@ -158,7 +160,8 @@ int CoroutineResumeById(Schedule& schedule, int id) {
   if (routine->isInsertBatch && not isBatchDone(schedule, routine->relateBatchId)) return NotRunnable;
   routine->state = Run;
   schedule.runningCoroutineId = id;
-  bcd::jump_fcontext(routine->ctx, (void*)&schedule);
+  bcd::transfer_t t = bcd::jump_fcontext(routine->ctx, (void*)&schedule);
+  routine->ctx = t.fctx;
   schedule.isMasterCoroutine = true;
   return Success;
 }
