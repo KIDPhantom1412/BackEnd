@@ -2,7 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <ucontext.h>
+#include <boost/context/detail/fcontext.hpp>
 
 #include <cstdint>
 #include <list>
@@ -20,6 +20,8 @@ constexpr int MAX_COROUTINE_SIZE = 102400;  // 最多创建102400个协程
 constexpr int MAX_BATCH_RUN_SIZE = 51200;   // 最多创建51200个批量执行
 constexpr int CANARY_SIZE = 512;            // canary内存的大小，单位字节
 constexpr uint8_t CANARY_PADDING = 0x88;    // canary填充的内容
+
+namespace bcd = boost::context::detail;     // 引入fcontext_t
 
 /* 1.协程的状态，协程的状态转移如下：
  *  idle->ready
@@ -65,7 +67,7 @@ typedef struct Coroutine {
   uint32_t priority;                           // 协程优先级，值越小，优先级越高
   void* arg;                                   // 协程入口函数的参数
   Entry entry;                                 // 协程入口函数
-  ucontext_t ctx;                              // 协程执行上下文
+  bcd::fcontext_t ctx;                         // 协程执行上下文
   uint8_t* stack;                              // 每个协程独占的协程栈，动态分配
   std::unordered_map<void*, LocalData> local;  // 协程本地变量，key是协程变量的内存地址
   int relateBatchId;                           // 关联的batchId，INVALID_BATCH_ID表示无关联的batch
@@ -81,7 +83,7 @@ typedef struct Batch {
 
 // 协程调度器
 typedef struct Schedule {
-  ucontext_t main;                            // 用于保存主协程的上下文
+  bcd::fcontext_t main;                       // 用于保存主协程的上下文
   int32_t runningCoroutineId;                 // 运行中（Run + Suspend）的从协程的id
   int32_t coroutineCnt;                       // 协程个数
   int32_t activityCnt;                        // 非idle状态的协程数

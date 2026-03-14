@@ -41,7 +41,14 @@ static void CoroutineRun(Schedule* schedule) {
   if (schedule->stackCheck) {
     assert(Normal == CoroutineStackCheck(*schedule, id));
   }
-  // 这个函数执行完，调用栈会回到主协程中，执行routine->ctx.uc_link指向的上下文的下一条指令
+  // 这个函数执行完，回到CoroutineRunWrapper之中，然后跳回主协程
+}
+
+static void CoroutineRunWrapper(bcd::transfer_t t) {
+  mainCtx = t.fctx;
+  Schedule* schedule = (Schedule*)t.data;
+  CoroutineRun(schedule);
+  bcd::jump_fcontext(mainCtx, nullptr)
 }
 
 static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, void* arg, uint32_t priority,
@@ -59,16 +66,11 @@ static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, v
     // 填充栈底canary内容
     memset(routine->stack + schedule.stackSize - CANARY_SIZE, CANARY_PADDING, CANARY_SIZE);
   }
-  getcontext(&(routine->ctx));
-  routine->ctx.uc_stack.ss_flags = 0;
-  routine->ctx.uc_stack.ss_sp = routine->stack + CANARY_SIZE;
-  routine->ctx.uc_stack.ss_size = schedule.stackSize - 2 * CANARY_SIZE;
-  routine->ctx.uc_link = &(schedule.main);
-  // 设置routine->ctx上下文要执行的函数和对应的参数，
-  // 这里没有直接使用entry和arg设置，而是多包了一层CoroutineRun函数的调用，
-  // 是为了在CoroutineRun中entry函数执行完之后，从协程的状态更新Idle，并更新当前处于运行中的从协程id为无效id，
-  // 这样这些逻辑就可以对上层调用透明。
-  makecontext(&(routine->ctx), (void (*)(void))(CoroutineRun), 1, &schedule);
+  routine->ctx = bcd::make_fcontext(
+    routine->stack + schedule.stackSize - CANARY_SIZE,
+    schedule.stackSize - 2 * CANARY_SIZE,
+    CoroutineRunWrapper
+  );
 }
 
 int CoroutineCreate(Schedule& schedule, Entry entry, void* arg, uint32_t priority, int relateBatchId) {
@@ -101,8 +103,8 @@ void CoroutineYield(Schedule& schedule) {
   // 更新当前的从协程状态为挂起
   routine->state = Suspend;
   // 当前的从协程让出执行权，并把当前的从协程的执行上下文保存到routine->ctx中，
-  // 执行权回到主协程中，主协程再做调度，当从协程被主协程resume时，swapcontext才会返回。
-  swapcontext(&routine->ctx, &(schedule.main));
+  // 执行权回到主协程中，主协程再做调度，当从协程被主协程resume时，bcd::jump_fcontext才会返回。
+  bcd::jump_fcontext(schedule.main, nullptr);
   schedule.isMasterCoroutine = false;
 }
 
@@ -140,8 +142,8 @@ int CoroutineResume(Schedule& schedule) {
   routine->state = Run;
   schedule.runningCoroutineId = coroutineId;
   // 从主协程切换到协程编号为id的协程中执行，并把当前执行上下文保存到schedule.main中，
-  // 当从协程执行结束或者从协程主动yield时，swapcontext才会返回。
-  swapcontext(&schedule.main, &routine->ctx);
+  // 当从协程执行结束或者从协程主动yield时，bcd::jump_fcontext才会返回。
+  bcd::jump_fcontext(routine->ctx, (void*)&schedule);
   schedule.isMasterCoroutine = true;
   return Success;
 }
@@ -156,9 +158,7 @@ int CoroutineResumeById(Schedule& schedule, int id) {
   if (routine->isInsertBatch && not isBatchDone(schedule, routine->relateBatchId)) return NotRunnable;
   routine->state = Run;
   schedule.runningCoroutineId = id;
-  // 从主协程切换到协程编号为id的协程中执行，并把当前执行上下文保存到schedule.main中，
-  // 当从协程执行结束或者从协程主动yield时，swapcontext才会返回。
-  swapcontext(&schedule.main, &routine->ctx);
+  bcd::jump_fcontext(routine->ctx, (void*)&schedule);
   schedule.isMasterCoroutine = true;
   return Success;
 }
