@@ -5,7 +5,7 @@
 #include <boost/context/detail/fcontext.hpp>
 
 #include <cstdint>
-#include <list>
+#include <deque>
 #include <unordered_map>
 
 #include "../common/singleton.hpp"
@@ -91,8 +91,8 @@ typedef struct Schedule {
   Coroutine* coroutines[MAX_COROUTINE_SIZE];  // 从协程数组池
   Batch* batchs[MAX_BATCH_RUN_SIZE];          // 批量执行数组池
   int stackSize;                              // 协程栈的大小，单位字节
-  std::list<int> batchFinishList;             // 完成了批量执行的关联的协程的id
-  std::list<int> idleQueue;                   // 空闲协程id队列
+  std::deque<int> batchFinishList;            // 完成了批量执行的关联的协程的id
+  std::deque<int> idleQueue;                  // 空闲协程id队列
   bool stackCheck;                            // 是否检测协程栈空间是否溢出
 } Schedule;
 
