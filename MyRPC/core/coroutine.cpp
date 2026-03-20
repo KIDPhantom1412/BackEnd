@@ -83,6 +83,8 @@ int CoroutineCreate(Schedule& schedule, Entry entry, void* arg, uint32_t priorit
   schedule.activityCnt++;
   Coroutine* routine = schedule.coroutines[id];
   CoroutineInit(schedule, routine, entry, arg, priority, relateBatchId);
+  routine->sequence++;
+  schedule.runnableQueue.push({routine->isInsertBatch, routine->priority, id, routine->sequence});
   return id;
 }
 
@@ -97,6 +99,8 @@ void CoroutineYield(Schedule& schedule) {
   Coroutine* routine = schedule.coroutines[schedule.runningCoroutineId];
   // 更新当前的从协程状态为挂起
   routine->state = Suspend;
+  routine->sequence++;
+  schedule.runnableQueue.push({routine->isInsertBatch, routine->priority, schedule.runningCoroutineId, routine->sequence});
   // 当前的从协程让出执行权，并把当前的从协程的执行上下文保存到routine->ctx中，
   // 执行权回到主协程中，主协程再做调度，当从协程被主协程resume时，bcd::jump_fcontext才会返回。
   bcd::transfer_t t = bcd::jump_fcontext(schedule.main, nullptr);
@@ -106,33 +110,28 @@ void CoroutineYield(Schedule& schedule) {
 
 int CoroutineResume(Schedule& schedule) {
   assert(schedule.isMasterCoroutine);
-  bool isInsertBatch = true;
-  uint32_t priority = UINT32_MAX;
   int coroutineId = INVALID_ROUTINE_ID;
-  // 按优先级调度，选择优先级最高的状态为挂起的从协程来运行，并考虑是否插入了batch卡点
-  for (int i = 0; i < schedule.coroutineCnt; i++) {
-    if (schedule.coroutines[i]->state == Idle || schedule.coroutines[i]->state == Run) {
+
+  while (!schedule.runnableQueue.empty()) {
+    RunnableCoroutine rc = schedule.runnableQueue.top();
+    schedule.runnableQueue.pop();
+
+    Coroutine* routine = schedule.coroutines[rc.id];
+
+    // 懒删除：如果协程的状态不是就绪或挂起，或者序列号不匹配，说明该项已过期，直接丢弃
+    if (rc.sequence != routine->sequence || (routine->state != Suspend && routine->state != Ready)) {
       continue;
     }
-    // 执行到这里，schedule.coroutines[i]->state的值为 Suspend 或者 Ready
-    if (not schedule.coroutines[i]->isInsertBatch && isInsertBatch) {  // 没batch卡点的协程优先级更高
-      coroutineId = i;
-      priority = schedule.coroutines[i]->priority;
-      isInsertBatch = false;
-    } else if (schedule.coroutines[i]->isInsertBatch && not isInsertBatch) {
-      // 插入batch卡点的协程优先级更低，所以这里不更新isInsertBatch，priority，coroutineId
-    } else {  // 都没插入batch卡点 或者 都插入了batch卡点
-      if (schedule.coroutines[i]->priority < priority) {
-        coroutineId = i;
-        priority = schedule.coroutines[i]->priority;
-      }
-    }
+
+    // 找到了优先级最高的协程
+    coroutineId = rc.id;
+    break;
   }
 
   if (coroutineId == INVALID_ROUTINE_ID) return NotRunnable;
   Coroutine* routine = schedule.coroutines[coroutineId];
   // 如果是被插入batch卡点的协程需要再校验batch是否执行完
-  if (isInsertBatch) {
+  if (routine->isInsertBatch) {
     assert(isBatchDone(schedule, routine->relateBatchId));  // batch卡点关联的协程必须全部执行完
   }
   routine->state = Run;
@@ -290,12 +289,15 @@ int ScheduleInit(Schedule& schedule, int coroutineCnt, int stackSize) {
     schedule.coroutines[i] = new Coroutine;
     schedule.coroutines[i]->state = Idle;
     schedule.coroutines[i]->stack = nullptr;
+    schedule.coroutines[i]->sequence = 0;
     schedule.idleQueue.push_back(i);
   }
   for (int i = 0; i < MAX_BATCH_RUN_SIZE; i++) {
     schedule.batchs[i] = new Batch;
     schedule.batchs[i]->state = Idle;
   }
+  // 清空优先队列
+  schedule.runnableQueue = std::priority_queue<RunnableCoroutine>();
   return 0;
 }
 

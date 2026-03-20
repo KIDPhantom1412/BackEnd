@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <unordered_map>
+#include <queue>
 
 #include "../common/singleton.hpp"
 
@@ -72,6 +73,7 @@ typedef struct Coroutine {
   std::unordered_map<void*, LocalData> local;  // 协程本地变量，key是协程变量的内存地址
   int relateBatchId;                           // 关联的batchId，INVALID_BATCH_ID表示无关联的batch
   bool isInsertBatch;                          // 当前在协程中是否被插入了batchRun的卡点
+  uint64_t sequence;                           // 协程的序列号，用于在优先队列中进行懒删除
 } Coroutine;
 
 // 批量执行结构体
@@ -80,6 +82,21 @@ typedef struct Batch {
   int relateId;                              // 关联的协程id
   std::unordered_map<int, bool> cid2finish;  // 每个关联协程的运行状态（是否执行完）
 } Batch;
+
+// 调度器中可运行的协程项
+struct RunnableCoroutine {
+  bool isInsertBatch;
+  uint32_t priority;
+  int id;
+  uint64_t sequence;
+
+  bool operator<(const RunnableCoroutine& other) const {
+    if (isInsertBatch != other.isInsertBatch) {
+      return isInsertBatch > other.isInsertBatch;  // true优先级更低，对应在优先队列中值更大（less比较返回true时排在后面）
+    }
+    return priority > other.priority;  // priority值越小优先级越高
+  }
+};
 
 // 协程调度器
 typedef struct Schedule {
@@ -93,6 +110,7 @@ typedef struct Schedule {
   int stackSize;                              // 协程栈的大小，单位字节
   std::deque<int> batchFinishList;            // 完成了批量执行的关联的协程的id
   std::deque<int> idleQueue;                  // 空闲协程id队列
+  std::priority_queue<RunnableCoroutine> runnableQueue; // 就绪和挂起状态的协程优先队列
   bool stackCheck;                            // 是否检测协程栈空间是否溢出
 } Schedule;
 
