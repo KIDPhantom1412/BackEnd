@@ -7,14 +7,14 @@ TARGET =
 CFLAGS = -g -O2 -Wall -Werror -pipe -m64
 # c++编译选项
 CXXFLAGS = -g -O2 -Wall -Werror -pipe -m64 -std=c++11
-# 连接选项 (增加 -lboost_context)
-LDFLAGS = -pthread -lprotobuf -L/usr/local/protobuf/lib -ljson -L/usr/local/jsoncpp/libs -lsnappy -L/usr/local/snappy/lib -lboost_context -L/usr/local/lib -lrt -Wl,-rpath=/usr/local/jsoncpp/libs:/usr/local/protobuf/lib:/usr/local/snappy/lib
+# 连接选项
+LDFLAGS = -pthread -lboost_context -L/usr/local/lib -lrt
 # 头文件目录
-INCFLAGS = -I../../common -I../../core -I../../protocol -I/usr/local/protobuf/include -I/usr/local/jsoncpp/include -I/usr/local/snappy/include -I/usr/local/include/boost
-# 源文件目录 (只需要当前目录和 core，因为只测协程不测网络)
-SRCDIRS = . ../../core
+INCFLAGS = -I../../common -I../../core -I/usr/local/include/boost
+# 源文件目录
+SRCDIRS = .
 # 单独的源文件
-ALONE_SOURCES = ../../common/cmdline.cpp
+ALONE_SOURCES = ../../common/cmdline.cpp ../../core/coroutine.cpp
 #======================= 自定义设置部分 结束 =====================#
 
 #======================= 固定设置部分 开始 =======================#
