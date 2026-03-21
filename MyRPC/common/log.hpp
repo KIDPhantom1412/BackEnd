@@ -82,11 +82,13 @@ class Logger {
       static RobustIo io(fd_);
       io.Write((uint8_t *)logMsg.data(), logMsg.size());
     } else {
+      bool needNotify = false;
       {
         std::lock_guard<std::mutex> lock(mtx_);
         queue_.push(std::move(logMsg));
+        if (queue_.size() > 100) needNotify = true;
       }
-      if (queue_.size() > 100) condVar_.notify_one();
+      if (needNotify) condVar_.notify_one();
     }
   }
   static std::string GetLogId() {
