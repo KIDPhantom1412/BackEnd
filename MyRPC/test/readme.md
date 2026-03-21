@@ -4,6 +4,12 @@
 
 ## 编译、安装运行所有的服务
 
+先删除曾经安装的目录，
+```bash
+cd /home/backend
+rm -rf BackEnd lock log route script service
+```
+
 ### 除了redis之外的服务安装
 
 编译，

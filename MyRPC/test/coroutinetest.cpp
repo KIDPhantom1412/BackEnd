@@ -53,22 +53,52 @@ TEST_CASE(Coroutine_Priority) {
   CoroutineCreate(SCHEDULE, CoroutineFuncBasic, &id2, 5);
   CoroutineCreate(SCHEDULE, CoroutineFuncBasic, &id3, 20);
 
+  // 队列初始状态：
+  // id2 (priority=5, sequence=1)
+  // id1 (priority=10, sequence=1)
+  // id3 (priority=20, sequence=1)
+
   // 第一次 Resume 应该执行优先级最高的，即 priority = 5 的 id2
+  // id2 运行，将 2 push 进 g_run_order，然后 Yield
   CoroutineResume(SCHEDULE);
   ASSERT_EQ(g_run_order.back(), 2);
+  
+  // Yield 之后，id2 会被重新推入优先队列。
+  // 此时队列中有：
+  // id2 (priority=5, sequence=2)  <-- 依然是优先级最高的！
+  // id1 (priority=10, sequence=1)
+  // id3 (priority=20, sequence=1)
 
-  // 第二次 Resume 执行 priority = 10 的 id1
+  // 所以第二次 Resume，依然会调度 id2！
+  // id2 会从 Yield 处恢复，将 2 * 10 = 20 push 进 g_run_order，然后执行完毕结束。
+  CoroutineResume(SCHEDULE);
+  ASSERT_EQ(g_run_order.back(), 20);
+
+  // 此时 id2 已经出队并结束。队列中剩下：
+  // id1 (priority=10, sequence=1)
+  // id3 (priority=20, sequence=1)
+  // 第三次 Resume 会调度优先级较高的 id1
+  // id1 运行，将 1 push 进 g_run_order，然后 Yield
   CoroutineResume(SCHEDULE);
   ASSERT_EQ(g_run_order.back(), 1);
 
-  // 第三次 Resume 执行 priority = 20 的 id3
-  CoroutineResume(SCHEDULE);
+  // Yield 之后，id1 被重新推入队列。
+  // 队列中有：
+  // id1 (priority=10, sequence=2) <-- 依然比 id3 优先级高
+  // id3 (priority=20, sequence=1)
+  // 第四次 Resume，依然调度 id1
+  // id1 从 Yield 处恢复，将 1 * 10 = 10 push 进 g_run_order，然后执行完毕。
+  CoroutineResume(SCHEDULE); 
+  ASSERT_EQ(g_run_order.back(), 10);
+
+  // 第五次 Resume，调度仅剩的 id3
+  // id3 运行，将 3 push 进 g_run_order，然后 Yield
+  CoroutineResume(SCHEDULE); 
   ASSERT_EQ(g_run_order.back(), 3);
 
-  // 让它们都执行完，避免状态残留
-  CoroutineResume(SCHEDULE); // id2 结束
-  CoroutineResume(SCHEDULE); // id1 结束
-  CoroutineResume(SCHEDULE); // id3 结束
+  // 第六次 Resume，唤醒 id3 完成剩余工作
+  CoroutineResume(SCHEDULE); 
+  ASSERT_EQ(g_run_order.back(), 30);
 
   ScheduleClean(SCHEDULE);
 }
@@ -79,7 +109,7 @@ static void CoroutineFuncEmpty(void* arg) {
 }
 
 TEST_CASE(Coroutine_LazyDeletion) {
-  ScheduleInit(SCHEDULE, 100);
+  ScheduleInit(SCHEDULE, 10);
 
   // 创建协程 1
   int id1 = 1;
@@ -95,9 +125,9 @@ TEST_CASE(Coroutine_LazyDeletion) {
   // 但由于优先队列不支持随机删除，队列里还有一个 sequence=1 的废弃节点。
 
   // 为了触发复用，我们需要把 idleQueue 里面排在它前面的其他空闲协程全都消耗掉
-  // 因为 schedule.coroutineCnt 是 100，目前只用了一个（且放回了队尾），我们需要创建 99 个协程才能再次拿到 cid
+  // 因为 schedule.coroutineCnt 是 10，目前只用了一个（且放回了队尾），我们需要创建 9 个协程才能再次拿到 cid
   std::vector<int> dummy_cids;
-  for (int i = 0; i < 99; i++) {
+  for (int i = 0; i < 9; i++) {
     int dummy_cid = CoroutineCreate(SCHEDULE, CoroutineFuncEmpty, nullptr);
     dummy_cids.push_back(dummy_cid);
   }
@@ -111,15 +141,15 @@ TEST_CASE(Coroutine_LazyDeletion) {
   int ret = CoroutineResume(SCHEDULE);
   ASSERT_EQ(ret, Success);
 
-  // 我们刚才创建了 99 个 dummy 协程 + 1 个复用的 cid2 协程，总共 100 个协程
-  // 加上上面已经 Resume 了一次，所以还需要再 Resume 99 次才能全部执行完
-  int resume_count = 1; 
+  // 我们刚才创建了 9 个 dummy 协程 + 1 个复用的 cid2 协程，总共 10 个协程
+  // 加上上面已经 Resume 了一次，所以还需要再 Resume 9 次才能全部执行完
+  int resume_count = 1;
   while ((ret = CoroutineResume(SCHEDULE)) == Success) {
     resume_count++;
   }
   
   // 验证确实所有的协程都被成功调度执行了
-  ASSERT_EQ(resume_count, 100);
+  ASSERT_EQ(resume_count, 10);
   // 验证最后一次 Resume 返回了 NotRunnable (表示队列已空)
   ASSERT_EQ(ret, NotRunnable);
 
