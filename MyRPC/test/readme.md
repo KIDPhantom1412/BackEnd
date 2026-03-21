@@ -28,9 +28,10 @@ cd /home/backend/BackEnd/MyRPC/service/
 
 解压和编译，
 ```bash
-cp /home/backend/BackEnd/MyRPC/thirdparty /home/backend
+cp /home/backend/BackEnd/MyRPC/thirdparty/redis-stable.tar.gz /home/backend
 cd /home/backend
 tar -zxf redis-stable.tar.gz
+rm -f redis-stable.tar.gz
 cd redis-stable
 make -j$(nproc)
 ```
