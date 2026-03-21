@@ -143,9 +143,9 @@ TEST_CASE(Coroutine_BatchPriority) {
 
   int id1 = 1, id2 = 2;
   // id1 优先级虽然为 0（最高），但是在运行中它将被标记为 isInsertBatch = true
-  int cid1 = CoroutineCreate(SCHEDULE, CoroutineFuncBatchInsert, &id1, 0);
+  CoroutineCreate(SCHEDULE, CoroutineFuncBatchInsert, &id1, 0);
   // id2 优先级为 10，没有 batch 卡点
-  int cid2 = CoroutineCreate(SCHEDULE, CoroutineFuncBasic, &id2, 10);
+  CoroutineCreate(SCHEDULE, CoroutineFuncBasic, &id2, 10);
 
   // 第一次 Resume，id1 (因为还没标记 batch，此时它优先级最高) 运行。
   // 它内部调用了 BatchAdd 和 BatchRun，因此它被挂起了 (isInsertBatch=true)
@@ -193,7 +193,7 @@ static void CoroutineFuncLocal(void* arg) {
 
   LocalData ld_get;
   bool exist = CoroutineLocalGet(SCHEDULE, (void*)1, ld_get);
-  ASSERT_TRUE(exist);
+  assert(exist);
   
   if (exist && ld_get.data) {
     g_run_order.push_back(*(int*)ld_get.data);
