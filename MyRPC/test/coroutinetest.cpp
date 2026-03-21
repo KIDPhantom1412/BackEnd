@@ -2,6 +2,7 @@
 #include "unittestcore.h"
 #include <vector>
 #include <iostream>
+#include <cassert>
 
 using namespace MyCoroutine;
 
