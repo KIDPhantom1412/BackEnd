@@ -49,7 +49,11 @@ class Logger {
     }
     condVar_.notify_one();
     if (thread_.joinable()) {
-      thread_.join();
+      if (thread_.get_id() == std::this_thread::get_id()) {
+        thread_.detach();
+      } else {
+        thread_.join();
+      }
     }
   }
   void SetLevel(LogLevel level) { level_ = level; }

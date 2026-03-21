@@ -52,14 +52,15 @@ void MyRPCService::Run() {
       ERROR("call fork failed. errMsg[%s]", strerror(errno));
       continue;
     }
-    LOGGER.EnableAsync();
     if (0 == pid) {  // 子进程直接跳出循环
       is_master_ = false;
+      LOGGER.EnableAsync();
       break;
     }
     pids_.push_back(pid);
   }
   if (is_master_) {
+    LOGGER.EnableAsync();
     monitorWorker();  // 主进程监控子进程
   } else {
     reactor_.Run(&config_);  // 子进程启动reactor，陷入事件监听
