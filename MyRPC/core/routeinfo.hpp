@@ -2,6 +2,7 @@
 
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../common/config.hpp"
@@ -65,7 +66,7 @@ class RouteInfo {
       std::string section = "Svr" + std::to_string(i);
       config.GetIntValue(section, "port", temp.port_, 0);
       config.GetStrValue(section, "ip", temp.ip_, "");
-      routeInfos.push_back(temp);
+      routeInfos.push_back(std::move(temp));
     }
     if (routeInfos.size() <= 0) return;
     TimeOut timeOut;

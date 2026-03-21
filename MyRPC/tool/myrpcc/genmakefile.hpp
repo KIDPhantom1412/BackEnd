@@ -14,10 +14,10 @@ CFLAGS = -g -O2 -Wall -Werror -pipe -m64
 CXXFLAGS = -g -O2 -Wall -Werror -pipe -m64 -std=c++11
 LDFLAGS = -pthread -lprotobuf -L/usr/local/protobuf/lib\
   -ljson -L/usr/local/jsoncpp/libs -lsnappy -L/usr/local/snappy/lib\
-  -lrt -Wl,-rpath=$(RPATH)
+  -lboost_context -L/usr/local/lib -lrt -Wl,-rpath=$(RPATH)
 INCFLAGS = -I./ -I../../common -I../../protocol\
   -I/usr/local/protobuf/include -I/usr/local/jsoncpp/include\
-  -I/usr/local/snappy/include
+  -I/usr/local/snappy/include -I/usr/local/include/boost
 SRCDIRS = . ./handler ./proto ../../core ../../common ../../protocol
 ALONE_SOURCES =
 CC = gcc

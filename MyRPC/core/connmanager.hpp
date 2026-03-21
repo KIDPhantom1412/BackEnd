@@ -1,6 +1,6 @@
 #pragma once
 
-#include <list>
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -42,7 +42,7 @@ class ConnManager {
     });
     auto iter = conn_pools_.find(serviceName);
     if (iter == conn_pools_.end()) {
-      conn_pools_[serviceName] = std::list<Conn *>();
+      conn_pools_[serviceName] = std::deque<Conn *>();
       conn_stats_[serviceName] = 0;
       conn = newConn(serviceName);
       return conn;
@@ -160,7 +160,7 @@ class ConnManager {
 
  private:
   int64_t max_idle_time_{300};                           // 连接最大空闲时间，单位秒，默认5分钟
-  std::map<std::string, std::list<Conn *>> conn_pools_;  // 连接池
+  std::map<std::string, std::deque<Conn *>> conn_pools_;  // 连接池
   std::map<std::string, int32_t> conn_stats_;            // 连接使用统计
 };
 }  // namespace Core

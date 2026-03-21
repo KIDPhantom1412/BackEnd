@@ -26,6 +26,7 @@ static void CoroutineRun(Schedule* schedule) {
   routine->entry(routine->arg);
   // entry函数执行完之后，才能把协程状态更新为idle，并标记runningCoroutineId为无效的id
   routine->state = Idle;
+  schedule->idleQueue.push_back(id);
   // 如果有关联的batch，则要更新batch的信息，设置batch关联的协程已经执行完
   if (routine->relateBatchId != INVALID_BATCH_ID) {
     Batch* batch = schedule->batchs[routine->relateBatchId];
@@ -41,7 +42,14 @@ static void CoroutineRun(Schedule* schedule) {
   if (schedule->stackCheck) {
     assert(Normal == CoroutineStackCheck(*schedule, id));
   }
-  // 这个函数执行完，调用栈会回到主协程中，执行routine->ctx.uc_link指向的上下文的下一条指令
+  // 这个函数执行完，回到CoroutineRunWrapper之中，然后跳回主协程
+}
+
+static void CoroutineRunWrapper(bcd::transfer_t t) {
+  Schedule* schedule = (Schedule*)t.data;
+  schedule->main = t.fctx;
+  CoroutineRun(schedule);
+  bcd::jump_fcontext(schedule->main, nullptr);
 }
 
 static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, void* arg, uint32_t priority,
@@ -59,38 +67,29 @@ static void CoroutineInit(Schedule& schedule, Coroutine* routine, Entry entry, v
     // 填充栈底canary内容
     memset(routine->stack + schedule.stackSize - CANARY_SIZE, CANARY_PADDING, CANARY_SIZE);
   }
-  getcontext(&(routine->ctx));
-  routine->ctx.uc_stack.ss_flags = 0;
-  routine->ctx.uc_stack.ss_sp = routine->stack + CANARY_SIZE;
-  routine->ctx.uc_stack.ss_size = schedule.stackSize - 2 * CANARY_SIZE;
-  routine->ctx.uc_link = &(schedule.main);
-  // 设置routine->ctx上下文要执行的函数和对应的参数，
-  // 这里没有直接使用entry和arg设置，而是多包了一层CoroutineRun函数的调用，
-  // 是为了在CoroutineRun中entry函数执行完之后，从协程的状态更新Idle，并更新当前处于运行中的从协程id为无效id，
-  // 这样这些逻辑就可以对上层调用透明。
-  makecontext(&(routine->ctx), (void (*)(void))(CoroutineRun), 1, &schedule);
+  routine->ctx = bcd::make_fcontext(
+    routine->stack + schedule.stackSize - CANARY_SIZE,
+    schedule.stackSize - 2 * CANARY_SIZE,
+    CoroutineRunWrapper
+  );
 }
 
 int CoroutineCreate(Schedule& schedule, Entry entry, void* arg, uint32_t priority, int relateBatchId) {
-  int id = 0;
-  for (id = 0; id < schedule.coroutineCnt; id++) {
-    if (schedule.coroutines[id]->state == Idle) break;
-  }
-  if (id >= schedule.coroutineCnt) {
+  if (schedule.idleQueue.empty()) {
     return INVALID_ROUTINE_ID;
   }
+  int id = schedule.idleQueue.front();
+  schedule.idleQueue.pop_front();
   schedule.activityCnt++;
   Coroutine* routine = schedule.coroutines[id];
   CoroutineInit(schedule, routine, entry, arg, priority, relateBatchId);
+  routine->sequence++;
+  schedule.runnableQueue.push({routine->isInsertBatch, routine->priority, id, routine->sequence});
   return id;
 }
 
 bool CoroutineCanCreate(Schedule& schedule) {
-  int id = 0;
-  for (id = 0; id < schedule.coroutineCnt; id++) {
-    if (schedule.coroutines[id]->state == Idle) return true;
-  }
-  return false;
+  return !schedule.idleQueue.empty();
 }
 
 void CoroutineYield(Schedule& schedule) {
@@ -100,48 +99,47 @@ void CoroutineYield(Schedule& schedule) {
   Coroutine* routine = schedule.coroutines[schedule.runningCoroutineId];
   // 更新当前的从协程状态为挂起
   routine->state = Suspend;
+  routine->sequence++;
+  schedule.runnableQueue.push({routine->isInsertBatch, routine->priority, schedule.runningCoroutineId, routine->sequence});
   // 当前的从协程让出执行权，并把当前的从协程的执行上下文保存到routine->ctx中，
-  // 执行权回到主协程中，主协程再做调度，当从协程被主协程resume时，swapcontext才会返回。
-  swapcontext(&routine->ctx, &(schedule.main));
+  // 执行权回到主协程中，主协程再做调度，当从协程被主协程resume时，bcd::jump_fcontext才会返回。
+  bcd::transfer_t t = bcd::jump_fcontext(schedule.main, nullptr);
+  schedule.main = t.fctx;
   schedule.isMasterCoroutine = false;
 }
 
 int CoroutineResume(Schedule& schedule) {
   assert(schedule.isMasterCoroutine);
-  bool isInsertBatch = true;
-  uint32_t priority = UINT32_MAX;
   int coroutineId = INVALID_ROUTINE_ID;
-  // 按优先级调度，选择优先级最高的状态为挂起的从协程来运行，并考虑是否插入了batch卡点
-  for (int i = 0; i < schedule.coroutineCnt; i++) {
-    if (schedule.coroutines[i]->state == Idle || schedule.coroutines[i]->state == Run) {
+
+  while (!schedule.runnableQueue.empty()) {
+    RunnableCoroutine rc = schedule.runnableQueue.top();
+    schedule.runnableQueue.pop();
+
+    Coroutine* routine = schedule.coroutines[rc.id];
+
+    // 懒删除：如果协程的状态不是就绪或挂起，或者序列号不匹配，说明该项已过期，直接丢弃
+    if (rc.sequence != routine->sequence || (routine->state != Suspend && routine->state != Ready)) {
       continue;
     }
-    // 执行到这里，schedule.coroutines[i]->state的值为 Suspend 或者 Ready
-    if (not schedule.coroutines[i]->isInsertBatch && isInsertBatch) {  // 没batch卡点的协程优先级更高
-      coroutineId = i;
-      priority = schedule.coroutines[i]->priority;
-      isInsertBatch = false;
-    } else if (schedule.coroutines[i]->isInsertBatch && not isInsertBatch) {
-      // 插入batch卡点的协程优先级更低，所以这里不更新isInsertBatch，priority，coroutineId
-    } else {  // 都没插入batch卡点 或者 都插入了batch卡点
-      if (schedule.coroutines[i]->priority < priority) {
-        coroutineId = i;
-        priority = schedule.coroutines[i]->priority;
-      }
-    }
+
+    // 找到了优先级最高的协程
+    coroutineId = rc.id;
+    break;
   }
 
   if (coroutineId == INVALID_ROUTINE_ID) return NotRunnable;
   Coroutine* routine = schedule.coroutines[coroutineId];
   // 如果是被插入batch卡点的协程需要再校验batch是否执行完
-  if (isInsertBatch) {
+  if (routine->isInsertBatch) {
     assert(isBatchDone(schedule, routine->relateBatchId));  // batch卡点关联的协程必须全部执行完
   }
   routine->state = Run;
   schedule.runningCoroutineId = coroutineId;
   // 从主协程切换到协程编号为id的协程中执行，并把当前执行上下文保存到schedule.main中，
-  // 当从协程执行结束或者从协程主动yield时，swapcontext才会返回。
-  swapcontext(&schedule.main, &routine->ctx);
+  // 当从协程执行结束或者从协程主动yield时，bcd::jump_fcontext才会返回。
+  bcd::transfer_t t = bcd::jump_fcontext(routine->ctx, (void*)&schedule);
+  routine->ctx = t.fctx;
   schedule.isMasterCoroutine = true;
   return Success;
 }
@@ -156,9 +154,8 @@ int CoroutineResumeById(Schedule& schedule, int id) {
   if (routine->isInsertBatch && not isBatchDone(schedule, routine->relateBatchId)) return NotRunnable;
   routine->state = Run;
   schedule.runningCoroutineId = id;
-  // 从主协程切换到协程编号为id的协程中执行，并把当前执行上下文保存到schedule.main中，
-  // 当从协程执行结束或者从协程主动yield时，swapcontext才会返回。
-  swapcontext(&schedule.main, &routine->ctx);
+  bcd::transfer_t t = bcd::jump_fcontext(routine->ctx, (void*)&schedule);
+  routine->ctx = t.fctx;
   schedule.isMasterCoroutine = true;
   return Success;
 }
@@ -287,25 +284,27 @@ int ScheduleInit(Schedule& schedule, int coroutineCnt, int stackSize) {
   schedule.isMasterCoroutine = true;
   schedule.coroutineCnt = coroutineCnt;
   schedule.runningCoroutineId = INVALID_ROUTINE_ID;
+  schedule.idleQueue.clear();
   for (int i = 0; i < coroutineCnt; i++) {
     schedule.coroutines[i] = new Coroutine;
     schedule.coroutines[i]->state = Idle;
     schedule.coroutines[i]->stack = nullptr;
+    schedule.coroutines[i]->sequence = 0;
+    schedule.idleQueue.push_back(i);
   }
   for (int i = 0; i < MAX_BATCH_RUN_SIZE; i++) {
     schedule.batchs[i] = new Batch;
     schedule.batchs[i]->state = Idle;
   }
+  // 清空优先队列
+  schedule.runnableQueue = std::priority_queue<RunnableCoroutine>();
   return 0;
 }
 
 bool ScheduleRunning(Schedule& schedule) {
   assert(schedule.isMasterCoroutine);
   if (schedule.runningCoroutineId != INVALID_ROUTINE_ID) return true;
-  for (int i = 0; i < schedule.coroutineCnt; i++) {
-    if (schedule.coroutines[i]->state != Idle) return true;
-  }
-  return false;
+  return schedule.activityCnt > 0;
 }
 
 void ScheduleClean(Schedule& schedule) {

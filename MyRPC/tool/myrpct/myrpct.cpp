@@ -120,8 +120,7 @@ void execTest() {
       break;
     }
   }
-  Protocol::MySvrMessage respMessage;
-  respMessage.CopyFrom(*(Protocol::MySvrMessage*)message);
+  Protocol::MySvrMessage& respMessage = *(Protocol::MySvrMessage*)message;
   string contextJsonStr;
   Common::Convert::Pb2JsonStr(respMessage.context_, contextJsonStr, true);
   if (printContext) {
