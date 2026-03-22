@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include "../common/cmdline.h"
+#include "../common/defer.hpp"
 #include "../common/log.hpp"
 #include "../common/servicelock.hpp"
 #include "../common/utils.hpp"
@@ -37,6 +38,7 @@ int MyRPCService::Init(int argc, char* argv[]) {
 }
 
 void MyRPCService::Run() {
+  Common::Defer shutdownLogger([]() { LOGGER.Shutdown(); });
   if (not Common::ServiceLock::lock("/home/backend/lock/subsys/" + Common::Utils::GetSelfName())) {
     ERROR("service already running");
     return;

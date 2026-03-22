@@ -42,10 +42,14 @@ class Logger {
                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);  //追加写的方式打开文件
     assert(fd_ >= 0);
   }
-  ~Logger() {
+  ~Logger() { Shutdown(); }
+  void Shutdown() {
+    bool expect = false;
+    if (!shutdown_.compare_exchange_strong(expect, true)) return;
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        exit_ = true;
+      std::lock_guard<std::mutex> lock(mtx_);
+      exit_ = true;
+      isAsync_.store(false, std::memory_order_release);
     }
     condVar_.notify_one();
     if (thread_.joinable()) {
@@ -53,11 +57,13 @@ class Logger {
     }
     if (fd_ >= 0) {
       close(fd_);
+      fd_ = -1;
     }
   }
 
   void SetLevel(LogLevel level) { level_ = level; }
   void Log(std::string logId, LogLevel level, char *format, ...) {
+    if (shutdown_.load(std::memory_order_acquire)) return;
     if (level < level_) return;
     int32_t ret = 0;
     static thread_local struct Buffer {
@@ -82,13 +88,16 @@ class Logger {
     std::string timeStr = TimeFormat::GetTimeStr("%F %T", true);
     std::string logMsg =
         levelStr(level) + " " + timeStr + " " + std::to_string(getpid()) + "," + logId + " " + buf.data + "\n";
-    if (!isAsync_.load()) {
+    if (!isAsync_.load(std::memory_order_acquire)) {
+      std::lock_guard<std::mutex> lock(mtx_);
+      if (exit_ || fd_ < 0) return;
       static RobustIo io(fd_);
       io.Write((uint8_t *)logMsg.data(), logMsg.size());
     } else {
       bool needNotify = false;
       {
         std::lock_guard<std::mutex> lock(mtx_);
+        if (exit_) return;
         queue_.push(std::move(logMsg));
         if (queue_.size() == 1 || queue_.size() > 100) needNotify = true;
       }
@@ -102,11 +111,12 @@ class Logger {
     return curTime + ip + std::to_string(seq.fetch_add(1, std::memory_order_relaxed) % 1000000);
   }
   void EnableAsync() {
+    if (shutdown_.load(std::memory_order_acquire)) return;
     std::lock_guard<std::mutex> lock(mtx_);
     if (!thread_.joinable()) {
       thread_ = std::thread(&Logger::process, this);
     }
-    isAsync_.store(true);
+    isAsync_.store(true, std::memory_order_release);
   }
 
  private:
@@ -120,7 +130,7 @@ class Logger {
   }
   void process() {
     std::unique_lock<std::mutex> lock(mtx_);
-    static std::queue<std::string> localQueue;
+    std::queue<std::string> localQueue;
     while (true) {
       if (!exit_) {
         if (queue_.empty()) {
@@ -150,6 +160,7 @@ class Logger {
     LogLevel level_{LEVEL_TRACE};
     bool exit_{false};
     std::atomic<bool> isAsync_{false};
+    std::atomic<bool> shutdown_{false};
     std::queue<std::string> queue_;
     std::mutex mtx_;
     std::condition_variable condVar_;

@@ -23,7 +23,7 @@ class Signal {
   static void signalExit(int signalNo) {
     SERVICE.RequestStop();
   }
-  static void signalPipeBroken(int signalNo) { WARN("pipe broken happen"); }
+  static void signalPipeBroken(int signalNo) { /* WARN("pipe broken happen"); */ }
   static void signalDeal(int signalNo, signalHandler handler) {
     struct sigaction act;
     act.sa_handler = handler;   //设置信号处理函数
