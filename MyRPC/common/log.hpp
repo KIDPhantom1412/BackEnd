@@ -49,10 +49,10 @@ class Logger {
     }
     condVar_.notify_one();
     if (thread_.joinable()) {
-        thread_.join();
+      thread_.join();
       }
-    }
   }
+
   void SetLevel(LogLevel level) { level_ = level; }
   void Log(std::string logId, LogLevel level, char *format, ...) {
     if (shuttingDown_.load(std::memory_order_acquire)) return;
