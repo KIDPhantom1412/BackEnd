@@ -65,6 +65,10 @@ class EventDispatch {
       }
       int num = epoll_wait(main_epoll_fd_, events, 2048, msec);
       if (num < 0) {
+        if (errno == EINTR) {
+          msec = delay;
+          continue;
+        }
         ERROR("epoll_wait failed, errMsg[%s]", strerror(errno));
         continue;
       } else if (num == 0) {  // 没有事件了，下次调用epoll_wait大概率被挂起
@@ -100,6 +104,10 @@ class EventDispatch {
       }
       int num = epoll_wait(eventDispatch->sub_epoll_fd_, events, 2048, msec);
       if (num < 0) {
+        if (errno == EINTR) {
+          msec = delay;
+          continue;
+        }
         ERROR("epoll_wait failed, errMsg[%s]", strerror(errno));
         continue;
       } else if (num == 0) {  // 没有事件了，下次调用epoll_wait大概率被挂起

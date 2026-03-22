@@ -53,8 +53,8 @@ void MyRPCService::Run() {
       ERROR("call fork failed. errMsg[%s]", strerror(errno));
       continue;
     }
-    LOGGER.EnableAsync();
     if (0 == pid) {  // 子进程直接跳出循环
+      LOGGER.EnableAsync();
       is_master_ = false;
       break;
     }
@@ -102,6 +102,7 @@ pid_t MyRPCService::restartWorker(pid_t oldPid) {
     return -1;
   }
   if (0 == pid) {
+    LOGGER.EnableAsync();
     is_master_ = false;
     reactor_.Run(&config_, &is_running_);  // 子进程启动reactor，陷入事件监听，不会再返回
   }
