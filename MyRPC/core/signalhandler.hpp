@@ -21,14 +21,9 @@ class Signal {
 
  private:
   static void signalExit(int signalNo) {
-    if (SERVICE.IsRun()) {
-      if (SERVICE.IsMaster()) {
-        SERVICE.Stop();  // 主进程需要等待子进程的退出，在stop函数中会等待子进程退出
-      }
-      exit(0);
-    }
+    SERVICE.is_running_.store(false);
   }
-  static void signalPipeBroken(int signalNo) {}
+  static void signalPipeBroken(int signalNo) { WARN("pipe broken happen"); }
   static void signalDeal(int signalNo, signalHandler handler) {
     struct sigaction act;
     act.sa_handler = handler;   //设置信号处理函数

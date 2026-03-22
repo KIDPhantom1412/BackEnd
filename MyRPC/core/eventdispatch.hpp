@@ -14,6 +14,7 @@
 #include "epollctl.hpp"
 #include "handler.hpp"
 #include "timer.hpp"
+#include "service.h"
 
 extern Core::CoroutineLocal<int> EpollFd;
 
@@ -51,10 +52,11 @@ class EventDispatch {
     EventData eventData(listen_sock_fd_, main_epoll_fd_, LISTEN);
     Common::Utils::SetNotBlock(listen_sock_fd_);
     EpollCtl::AddReadEvent(main_epoll_fd_, listen_sock_fd_, &eventData);
-    int msec = -1;
+    const int delay = 1000;
+    int msec = delay;
     TimerData timerData;
     bool oneTimer = false;
-    while (true) {
+    while (SERVICE.IsRun()) {
       oneTimer = idle_connection_timer_.GetLastTimer(timerData);
       if (oneTimer) {
         msec = idle_connection_timer_.TimeOutMs(timerData);
@@ -65,7 +67,7 @@ class EventDispatch {
         continue;
       } else if (num == 0) {  // 没有事件了，下次调用epoll_wait大概率被挂起
         sleep(0);  // 这里直接sleep(0)让出cpu。大概率被挂起，这里主动让出cpu，可以减少一次epoll_wait的调用
-        msec = -1;  // 大概率被挂起，故这里超时时间设置为-1
+        msec = delay;  // 大概率被挂起，这里设为delay，因为可能SERVICE已经设置停止标志了
       } else {
         msec = 0;  // 下次大概率还有事件，故msec设置为0
       }
@@ -86,7 +88,7 @@ class EventDispatch {
     int msec = -1;
     TimerData timerData;
     bool oneTimer = false;
-    while (true) {
+    while (SERVICE.IsRun()) {
       oneTimer = TIMER.GetLastTimer(timerData);
       if (oneTimer) {
         msec = TIMER.TimeOutMs(timerData);

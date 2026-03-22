@@ -14,7 +14,7 @@ class MyRPCService {
   void Run();                        // 启动运行
   void Stop();                       // 停止运行
 
-  bool IsRun() { return is_running_; }
+  bool IsRun() { return is_running_.load(); }
   bool IsMaster() { return is_master_; }
   void RegHandler(MyHandler* handler) { reactor_.RegHandler(handler); }
 
@@ -26,7 +26,7 @@ class MyRPCService {
 
  private:
   bool is_master_{true};     // 是否主进程
-  bool is_running_{true};    // 是否运行中
+  std::atomic<bool> is_running_{true};    // 是否运行中
   bool is_daemon_{false};    // 服务是否以守护进程的方式运行
   bool is_debug_{false};     // 服务是否进入调试模式
   Reactor reactor_;          // reactor类

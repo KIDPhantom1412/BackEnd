@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <atomic>
 
 #include "../common/cmdline.h"
 #include "../common/log.hpp"
@@ -52,15 +53,14 @@ void MyRPCService::Run() {
       ERROR("call fork failed. errMsg[%s]", strerror(errno));
       continue;
     }
+    LOGGER.EnableAsync();
     if (0 == pid) {  // 子进程直接跳出循环
       is_master_ = false;
-      LOGGER.EnableAsync();
       break;
     }
     pids_.push_back(pid);
   }
   if (is_master_) {
-    LOGGER.EnableAsync();
     monitorWorker();  // 主进程监控子进程
   } else {
     reactor_.Run(&config_);  // 子进程启动reactor，陷入事件监听
@@ -68,7 +68,6 @@ void MyRPCService::Run() {
 }
 
 void MyRPCService::Stop() {
-  is_running_ = false;
   for (size_t i = 0; i < pids_.size(); i++) {
     waitpid(pids_[i], NULL, 0);
   }
@@ -85,7 +84,7 @@ void MyRPCService::usage() {
 }
 
 void MyRPCService::monitorWorker() {
-  while (true) {
+  while (IsRun()) {
     sleep(1);  // 每1秒check一下子进程的状态
     for (size_t i = 0; i < pids_.size(); i++) {
       if (pids_[i] <= 0 || kill(pids_[i], 0) != 0) {  // 子进程状态异常，则重启子进程
@@ -93,6 +92,7 @@ void MyRPCService::monitorWorker() {
       }
     }
   }
+  Stop();
 }
 
 pid_t MyRPCService::restartWorker(pid_t oldPid) {
@@ -103,7 +103,6 @@ pid_t MyRPCService::restartWorker(pid_t oldPid) {
   }
   if (0 == pid) {
     is_master_ = false;
-    LOGGER.EnableAsync();
     reactor_.Run(&config_);  // 子进程启动reactor，陷入事件监听，不会再返回
   }
   // 只有父进程会执行到这里

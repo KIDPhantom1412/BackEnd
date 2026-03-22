@@ -49,15 +49,13 @@ class Logger {
     }
     condVar_.notify_one();
     if (thread_.joinable()) {
-      if (thread_.get_id() == std::this_thread::get_id()) {
-        thread_.detach();
-      } else {
         thread_.join();
       }
     }
   }
   void SetLevel(LogLevel level) { level_ = level; }
   void Log(std::string logId, LogLevel level, char *format, ...) {
+    if (shuttingDown_.load(std::memory_order_acquire)) return;
     if (level < level_) return;
     int32_t ret = 0;
     static thread_local struct Buffer {
@@ -118,8 +116,8 @@ class Logger {
     return "UNKNOWN";
   }
   void process() {
-    static std::queue<std::string> localQueue;
     std::unique_lock<std::mutex> lock(mtx_);
+    static std::queue<std::string> localQueue;
     while (true) {
       if (!exit_) {
         if (queue_.empty()) {
