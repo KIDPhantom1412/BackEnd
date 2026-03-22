@@ -21,7 +21,7 @@ class Signal {
 
  private:
   static void signalExit(int signalNo) {
-    SERVICE.is_running_.store(false);
+    SERVICE.RequestStop();
   }
   static void signalPipeBroken(int signalNo) { WARN("pipe broken happen"); }
   static void signalDeal(int signalNo, signalHandler handler) {

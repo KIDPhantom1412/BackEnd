@@ -5,10 +5,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <string>
-#include <queue>
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <queue>
+#include <string>
 #include <thread>
 
 #include "robustio.hpp"
@@ -39,8 +40,7 @@ class Logger {
     std::string fileName = Strings::StrFormat((char *)"/home/backend/log/%s/%s.log", cStr, cStr);
     fd_ = open(fileName.c_str(), O_APPEND | O_CREAT | O_WRONLY,
                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);  //追加写的方式打开文件
-    assert(fd_ > 0);
-    srand(time(0));
+    assert(fd_ >= 0);
   }
   ~Logger() {
     {
@@ -50,12 +50,14 @@ class Logger {
     condVar_.notify_one();
     if (thread_.joinable()) {
       thread_.join();
-      }
+    }
+    if (fd_ >= 0) {
+      close(fd_);
+    }
   }
 
   void SetLevel(LogLevel level) { level_ = level; }
   void Log(std::string logId, LogLevel level, char *format, ...) {
-    if (shuttingDown_.load(std::memory_order_acquire)) return;
     if (level < level_) return;
     int32_t ret = 0;
     static thread_local struct Buffer {
@@ -80,7 +82,7 @@ class Logger {
     std::string timeStr = TimeFormat::GetTimeStr("%F %T", true);
     std::string logMsg =
         levelStr(level) + " " + timeStr + " " + std::to_string(getpid()) + "," + logId + " " + buf.data + "\n";
-    if (!isAsync_) {
+    if (!isAsync_.load()) {
       static RobustIo io(fd_);
       io.Write((uint8_t *)logMsg.data(), logMsg.size());
     } else {
@@ -88,7 +90,7 @@ class Logger {
       {
         std::lock_guard<std::mutex> lock(mtx_);
         queue_.push(std::move(logMsg));
-        if (queue_.size() > 100) needNotify = true;
+        if (queue_.size() == 1 || queue_.size() > 100) needNotify = true;
       }
       if (needNotify) condVar_.notify_one();
     }
@@ -96,14 +98,15 @@ class Logger {
   static std::string GetLogId() {
     static std::string ip = Common::Utils::GetIpStr("eth0");  //默认取eth0的ip
     std::string curTime = TimeFormat::GetTimeStr("%Y%m%d%H%M%S");
-    return curTime + ip + std::to_string(rand() % 1000000);
+    static std::atomic<uint64_t> seq{0};
+    return curTime + ip + std::to_string(seq.fetch_add(1, std::memory_order_relaxed) % 1000000);
   }
   void EnableAsync() {
     std::lock_guard<std::mutex> lock(mtx_);
     if (!thread_.joinable()) {
       thread_ = std::thread(&Logger::process, this);
     }
-    isAsync_ = true;
+    isAsync_.store(true);
   }
 
  private:
@@ -146,7 +149,7 @@ class Logger {
     int fd_{-1};
     LogLevel level_{LEVEL_TRACE};
     bool exit_{false};
-    bool isAsync_{false};
+    std::atomic<bool> isAsync_{false};
     std::queue<std::string> queue_;
     std::mutex mtx_;
     std::condition_variable condVar_;

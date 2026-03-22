@@ -42,7 +42,7 @@ void MyRPCService::Run() {
     return;
   }
   if (is_debug_) {
-    reactor_.Run(&config_);  // debug模式下，直接启动reactor，陷入事件监听
+    reactor_.Run(&config_, &is_running_);  // debug模式下，直接启动reactor，陷入事件监听
     return;
   }
   int64_t processCount = 0;
@@ -63,7 +63,7 @@ void MyRPCService::Run() {
   if (is_master_) {
     monitorWorker();  // 主进程监控子进程
   } else {
-    reactor_.Run(&config_);  // 子进程启动reactor，陷入事件监听
+    reactor_.Run(&config_, &is_running_);  // 子进程启动reactor，陷入事件监听
   }
 }
 
@@ -103,7 +103,7 @@ pid_t MyRPCService::restartWorker(pid_t oldPid) {
   }
   if (0 == pid) {
     is_master_ = false;
-    reactor_.Run(&config_);  // 子进程启动reactor，陷入事件监听，不会再返回
+    reactor_.Run(&config_, &is_running_);  // 子进程启动reactor，陷入事件监听，不会再返回
   }
   // 只有父进程会执行到这里
   INFO("worker process pid[%d] not exist, restart new pid[%d]", oldPid, pid);

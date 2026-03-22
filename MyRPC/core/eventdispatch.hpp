@@ -2,6 +2,7 @@
 
 #include <sys/epoll.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -14,15 +15,16 @@
 #include "epollctl.hpp"
 #include "handler.hpp"
 #include "timer.hpp"
-#include "service.h"
 
 extern Core::CoroutineLocal<int> EpollFd;
 
 namespace Core {
 class EventDispatch {
  public:
-  void Run(std::string listenIf, int64_t port, int64_t coroutineCount) {
-    std::thread(subHandler, coroutineCount, this).detach();  // 启动subReactor,这里需要调用detach，让创建的线程独立运行
+  void Run(std::string listenIf, int64_t port, int64_t coroutineCount, const std::atomic<bool>* runFlag) {
+    run_flag_ = runFlag;
+    assert(run_flag_);
+    sub_thread_ = std::thread(subHandler, coroutineCount, this);
     mainHandler(listenIf, port);                             // 启动mainReactor
   }
   void RegHandler(MyHandler *handler) { handler_ = handler; }
@@ -42,6 +44,7 @@ class EventDispatch {
     EpollCtl::ClearEvent(eventData->epoll_fd_, eventData->fd_);  // 超时清除事件的监听，关闭连接
     delete eventData;                                            // 释放空间
   }
+  bool IsRun() const { return run_flag_->load(); }
   void mainHandler(std::string listenIf, int64_t port) {
     waitSubReactor();  // 等待subReactor协程都启动完毕
     listen_sock_fd_ = createListenSocket(listenIf, (int)port);
@@ -52,11 +55,10 @@ class EventDispatch {
     EventData eventData(listen_sock_fd_, main_epoll_fd_, LISTEN);
     Common::Utils::SetNotBlock(listen_sock_fd_);
     EpollCtl::AddReadEvent(main_epoll_fd_, listen_sock_fd_, &eventData);
-    const int delay = 1000;
     int msec = delay;
     TimerData timerData;
     bool oneTimer = false;
-    while (SERVICE.IsRun()) {
+    while (IsRun()) {
       oneTimer = idle_connection_timer_.GetLastTimer(timerData);
       if (oneTimer) {
         msec = idle_connection_timer_.TimeOutMs(timerData);
@@ -78,6 +80,9 @@ class EventDispatch {
       }
       if (oneTimer) idle_connection_timer_.Run(timerData);  // 处理定时器
     }
+    if (sub_thread_.joinable()) {
+      sub_thread_.join();
+    }
   }
   static void subHandler(int coroutineCount, EventDispatch *eventDispatch) {
     epoll_event events[2048];
@@ -85,10 +90,10 @@ class EventDispatch {
     assert(eventDispatch->sub_epoll_fd_ > 0);
     eventDispatch->subReactorNotify();
     MyCoroutine::ScheduleInit(SCHEDULE, coroutineCount, 64 * 1024);
-    int msec = -1;
+    int msec = delay;
     TimerData timerData;
     bool oneTimer = false;
-    while (SERVICE.IsRun()) {
+    while (eventDispatch->IsRun()) {
       oneTimer = TIMER.GetLastTimer(timerData);
       if (oneTimer) {
         msec = TIMER.TimeOutMs(timerData);
@@ -99,7 +104,7 @@ class EventDispatch {
         continue;
       } else if (num == 0) {  // 没有事件了，下次调用epoll_wait大概率被挂起
         sleep(0);  // 这里直接sleep(0)让出cpu，大概率被挂起，这里主动让出cpu，可以减少一次epoll_wait的调用
-        msec = -1;  // 大概率被挂起，故这里超时时间设置为-1
+        msec = delay;  // 大概率被挂起，故这里超时时间设置为delay
       } else {
         msec = 0;  // 下次大概率还有事件，故msec设置为0
       }
@@ -200,9 +205,12 @@ class EventDispatch {
   int main_epoll_fd_;            // epoll实例的fd，用于监听客户端连接
   int listen_sock_fd_;           // 开启网络监听的fd
   Timer idle_connection_timer_;  // 空闲连接定时器
+  const int delay{1000};
+  std::thread sub_thread_;
 
   std::mutex mutex_;
   std::condition_variable cond_;
   bool sub_reactor_run_{false};
+  const std::atomic<bool>* run_flag_{nullptr};
 };
 }  // namespace Core

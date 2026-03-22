@@ -14,7 +14,8 @@ class MyRPCService {
   void Run();                        // 启动运行
   void Stop();                       // 停止运行
 
-  bool IsRun() { return is_running_.load(); }
+  void RequestStop() { is_running_.store(false); }
+  bool IsRun() const { return is_running_.load(); }
   bool IsMaster() { return is_master_; }
   void RegHandler(MyHandler* handler) { reactor_.RegHandler(handler); }
 
