@@ -205,8 +205,8 @@ class EventDispatch {
   int main_epoll_fd_;            // epoll实例的fd，用于监听客户端连接
   int listen_sock_fd_;           // 开启网络监听的fd
   Timer idle_connection_timer_;  // 空闲连接定时器
-  const int delay{1000};
-  std::thread sub_thread_;
+  static const int delay = 1000; // 最大的epoll_wait时间
+  std::thread sub_thread_;       // subHandler的线程实例
 
   std::mutex mutex_;
   std::condition_variable cond_;
