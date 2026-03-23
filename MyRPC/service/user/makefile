@@ -8,9 +8,9 @@ CFLAGS = -g -O2 -Wall -Werror -pipe -m64
 # c++编译选项
 CXXFLAGS = -g -O2 -Wall -Werror -pipe -m64 -std=c++11
 # 连接选项
-LDFLAGS = -pthread -lprotobuf -L/usr/local/protobuf/lib -ljson -L/usr/local/jsoncpp/libs -lsnappy -L/usr/local/snappy/lib -lrt -Wl,-rpath=/usr/local/jsoncpp/libs:/usr/local/protobuf/lib:/usr/local/snappy/lib
+LDFLAGS = -pthread -lprotobuf -L/usr/local/protobuf/lib -ljson -L/usr/local/jsoncpp/libs -lsnappy -L/usr/local/snappy/lib -lrt -lboost_context -Wl,-rpath=/usr/local/jsoncpp/libs:/usr/local/protobuf/lib:/usr/local/snappy/lib
 # 头文件目录
-INCFLAGS = -I./ -I../../common -I../../protocol -I/usr/local/protobuf/include -I/usr/local/jsoncpp/include -I/usr/local/snappy/include
+INCFLAGS = -I./ -I../../common -I../../protocol -I/usr/local/protobuf/include -I/usr/local/jsoncpp/include -I/usr/local/snappy/include -I/usr/local/include
 # 源文件目录
 SRCDIRS = . ./handler ./proto ../../core ../../common ../../protocol ../auth/proto ../userstore/proto
 # 单独的源文件
